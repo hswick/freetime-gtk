@@ -37,6 +37,9 @@ use gtk::{
     WidgetExt,
     Window,
     WindowType,
+    Entry,
+    EntryExt,
+    EditableSignals
 };
 use gtk::Orientation::{Vertical, Horizontal};
 use relm::{Relm, Update, Widget, WidgetTest};
@@ -44,7 +47,7 @@ use relm::{Relm, Update, Widget, WidgetTest};
 #[derive(Clone)]
 struct HourUnit {
     date_hour: String,
-    content: String
+    content: String,
 }
 
 fn default_week() -> Vec<Vec<HourUnit>> {
@@ -64,14 +67,8 @@ fn default_week() -> Vec<Vec<HourUnit>> {
 
 struct Model {
     week: Vec<Vec<HourUnit>>,
-}
-
-#[derive(Msg)]
-enum Msg {
-    MouseEnter(usize, usize),
-    MouseExit,
-    Select(usize, usize),
-    Quit,
+    selected: Option<(usize, usize)>,
+    content: String
 }
 
 // Create the structure that holds the widgets used in the view.
@@ -85,11 +82,22 @@ struct Widgets {
     select_date_hour_label: Label,
     select_content_label: Label,
     window: Window,
+    input: Entry
 }
 
 struct Win {
     model: Model,
     widgets: Widgets,
+}
+
+#[derive(Msg)]
+enum Msg {
+    MouseEnter(usize, usize),
+    MouseExit,
+    Select(usize, usize),
+    Quit,
+    Edit,
+    Change
 }
 
 impl Update for Win {
@@ -104,12 +112,31 @@ impl Update for Win {
     fn model(_: &Relm<Self>, _: ()) -> Model {
         Model {
             week: default_week(),
+            selected: None,
+            content: "".to_string()
         }
     }
 
     fn update(&mut self, event: Msg) {
         match event {
             Msg::Quit => gtk::main_quit(),
+            Msg::Change => {
+                self.model.content = self.widgets.input.get_text()
+                    .expect("get_text failed")
+                    .chars()
+                    .collect();
+                
+                self.widgets.select_content_label.set_text(&self.model.content);
+            },
+            Msg::Edit => {
+                let (i, j) = self.model.selected.unwrap();
+                self.model.week[i][j] = HourUnit {
+                    content: self.model.content.clone(),
+                    date_hour: self.model.week[i][j].date_hour.clone()
+                };
+                self.model.selected = None;
+                self.model.content = "".to_string();
+            },
             Msg::MouseEnter(i, j) => {
                 let c = &self.widgets.hover_view.get_children();                
                 c[0].hide();
@@ -128,19 +155,18 @@ impl Update for Win {
             },
             Msg::Select(i, j) => {
                 let c = &self.widgets.select_view.get_children();
-                c[0].hide();
-                c[1].show();
-                c[2].show();
-
+                //Only have to do this once
                 if c.len() == 3 {
-                    let edit = Button::new_with_label("Edit");
-                    edit.show();
-                    &self.widgets.select_view.add(&edit);  
+                    c[0].hide();
+                    c[1].show();
+                    c[2].show();
                 }
 
                 let hour_unit = &self.model.week[i][j];
                 self.widgets.select_date_hour_label.set_text(&hour_unit.date_hour[..]);
                 self.widgets.select_content_label.set_text(&hour_unit.content[..]);
+
+                self.model.selected = Some((i, j));
             }
         }
     }
@@ -151,7 +177,7 @@ fn week_view(relm: &Relm<Win>, week: &Vec<Vec<HourUnit>>) -> gtk::Box {
     for i in 0..5 {
         let day = gtk::Box::new(Vertical, 0);
         for j in 0..13 {
-            let button = Button::new_with_label(&week[i][j].date_hour); 
+            let button = Button::new_with_label(&week[i][j].date_hour);
             day.add(&button);
             connect!(relm, button, connect_clicked(_), Msg::Select(i, j));
             connect!(relm, button, connect_enter_notify_event(_,_), return (Some(Msg::MouseEnter(i, j)), Inhibit(false)));
@@ -162,7 +188,7 @@ fn week_view(relm: &Relm<Win>, week: &Vec<Vec<HourUnit>>) -> gtk::Box {
     week_buttons
 }
 
-fn edit_view() -> (gtk::Box, gtk::Box, gtk::Box, Label, Label, Label, Label) {
+fn edit_view(relm: &Relm<Win>) -> (gtk::Box, gtk::Box, gtk::Box, Label, Label, Label, Label, Entry) {
     let edit_view = gtk::Box::new(Vertical, 0);
 
     let week_select_view = gtk::Box::new(Horizontal, 0);
@@ -196,9 +222,19 @@ fn edit_view() -> (gtk::Box, gtk::Box, gtk::Box, Label, Label, Label, Label) {
     select_view.add(&select_content_label);
     select_view.hide();
 
-    edit_view.add(&select_view);
+    let input = Entry::new();
+    input.show();
+    select_view.add(&input);
+    connect!(relm, input, connect_changed(_), Msg::Change);
 
-    (edit_view, hover_view, select_view, hover_date_hour_label, hover_content_label, select_date_hour_label, select_content_label)
+    let edit = Button::new_with_label("Edit");
+    edit.show();
+    select_view.add(&edit);
+    connect!(relm, edit, connect_clicked(_), Msg::Edit);
+    
+    edit_view.add(&select_view);    
+
+    (edit_view, hover_view, select_view, hover_date_hour_label, hover_content_label, select_date_hour_label, select_content_label, input)
 }
 
 impl Widget for Win {
@@ -218,7 +254,7 @@ impl Widget for Win {
         let w_view = week_view(relm, &model.week);
         layout.add(&w_view);
         
-        let (e_view, hover_view, select_view, hover_date_hour_label, hover_content_label, select_date_hour_label, select_content_label) = edit_view();
+        let (e_view, hover_view, select_view, hover_date_hour_label, hover_content_label, select_date_hour_label, select_content_label, input) = edit_view(relm);
         layout.add(&e_view);
         window.add(&layout);
 
@@ -236,6 +272,7 @@ impl Widget for Win {
                 hover_content_label: hover_content_label,
                 select_date_hour_label: select_date_hour_label,
                 select_content_label: select_content_label,
+                input: input,
                 week: w_view,
                 window: window,
             },
