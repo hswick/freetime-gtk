@@ -41,6 +41,7 @@ use gtk::{
 use gtk::Orientation::{Vertical, Horizontal};
 use relm::{Relm, Update, Widget, WidgetTest};
 
+#[derive(Clone)]
 struct HourUnit {
     date_hour: String,
     content: String
@@ -63,12 +64,13 @@ fn default_week() -> Vec<Vec<HourUnit>> {
 
 struct Model {
     week: Vec<Vec<HourUnit>>,
-    hovered: Option<HourUnit>,
-    selected: Option<HourUnit>,    
 }
 
 #[derive(Msg)]
 enum Msg {
+    MouseEnter(usize, usize),
+    MouseExit,
+    Select(usize, usize),
     Quit,
 }
 
@@ -76,6 +78,12 @@ enum Msg {
 #[derive(Clone)]
 struct Widgets {
     week: gtk::Box,
+    select_view: gtk::Box,
+    hover_view: gtk::Box,
+    hover_date_hour_label: Label,
+    hover_content_label: Label,
+    select_date_hour_label: Label,
+    select_content_label: Label,
     window: Window,
 }
 
@@ -96,28 +104,101 @@ impl Update for Win {
     fn model(_: &Relm<Self>, _: ()) -> Model {
         Model {
             week: default_week(),
-            hovered: None,
-            selected: None
         }
     }
 
     fn update(&mut self, event: Msg) {
         match event {
             Msg::Quit => gtk::main_quit(),
+            Msg::MouseEnter(i, j) => {
+                let c = &self.widgets.hover_view.get_children();                
+                c[0].hide();
+                c[1].show();
+                c[2].show();
+
+                let hour_unit = &self.model.week[i][j];
+                self.widgets.hover_date_hour_label.set_text(&hour_unit.date_hour[..]);
+                self.widgets.hover_content_label.set_text(&hour_unit.content[..]);
+            },
+            Msg::MouseExit => {
+                let c = &self.widgets.hover_view.get_children();
+                c[0].show();
+                c[1].hide();
+                c[2].hide();
+            },
+            Msg::Select(i, j) => {
+                let c = &self.widgets.select_view.get_children();
+                c[0].hide();
+                c[1].show();
+                c[2].show();
+
+                if c.len() == 3 {
+                    let edit = Button::new_with_label("Edit");
+                    edit.show();
+                    &self.widgets.select_view.add(&edit);  
+                }
+
+                let hour_unit = &self.model.week[i][j];
+                self.widgets.select_date_hour_label.set_text(&hour_unit.date_hour[..]);
+                self.widgets.select_content_label.set_text(&hour_unit.content[..]);
+            }
         }
     }
 }
 
-fn week_view(week: &Vec<Vec<HourUnit>>) -> gtk::Box {
+fn week_view(relm: &Relm<Win>, week: &Vec<Vec<HourUnit>>) -> gtk::Box {
     let week_buttons = gtk::Box::new(Horizontal, 0);
     for i in 0..5 {
         let day = gtk::Box::new(Vertical, 0);
         for j in 0..13 {
-            day.add(&Button::new_with_label(&week[i][j].date_hour));
+            let button = Button::new_with_label(&week[i][j].date_hour); 
+            day.add(&button);
+            connect!(relm, button, connect_clicked(_), Msg::Select(i, j));
+            connect!(relm, button, connect_enter_notify_event(_,_), return (Some(Msg::MouseEnter(i, j)), Inhibit(false)));
+            connect!(relm, button, connect_leave_notify_event(_,_), return (Some(Msg::MouseExit), Inhibit(false)));
         }
         week_buttons.add(&day);
     }
     week_buttons
+}
+
+fn edit_view() -> (gtk::Box, gtk::Box, gtk::Box, Label, Label, Label, Label) {
+    let edit_view = gtk::Box::new(Vertical, 0);
+
+    let week_select_view = gtk::Box::new(Horizontal, 0);
+    let last_button = Button::new_with_label("Last");
+    week_select_view.add(&last_button);
+
+    let current_button = Button::new_with_label("Current");
+    week_select_view.add(&current_button);
+
+    let next_button = Button::new_with_label("Next");
+    week_select_view.add(&next_button);
+
+    edit_view.add(&week_select_view);
+
+    let hover_view = gtk::Box::new(Vertical, 0);
+    hover_view.add(&Label::new("Hover over a time to view"));
+    
+    let hover_date_hour_label = Label::new(None);
+    let hover_content_label = Label::new(None);
+    hover_view.add(&hover_date_hour_label);
+    hover_view.add(&hover_content_label);
+    edit_view.add(&hover_view);
+    
+    let select_view = gtk::Box::new(Vertical, 0);
+    select_view.add(&Label::new("Click a time to edit"));
+
+    let select_date_hour_label = Label::new(None);
+    let select_content_label = Label::new(None);
+    
+    select_view.add(&select_date_hour_label);
+    select_view.add(&select_content_label);
+    select_view.hide();
+
+    edit_view.add(&select_view);
+
+    (edit_view, hover_view, select_view, hover_date_hour_label, hover_content_label, select_date_hour_label, select_content_label)
 }
 
 impl Widget for Win {
@@ -134,62 +215,27 @@ impl Widget for Win {
         let window = Window::new(WindowType::Toplevel);
         let layout = gtk::Box::new(Horizontal, 0);
 
-        let w_view = week_view(&model.week);
+        let w_view = week_view(relm, &model.week);
         layout.add(&w_view);
-
-        let edit_view = gtk::Box::new(Vertical, 0);
-
-        let week_select_view = gtk::Box::new(Horizontal, 0);
-        let last_button = Button::new_with_label("Last");
-        week_select_view.add(&last_button);
-
-        let current_button = Button::new_with_label("Current");
-        week_select_view.add(&current_button);
-
-        let next_button = Button::new_with_label("Next");
-        week_select_view.add(&next_button);
-
-        edit_view.add(&week_select_view);        
-
-        let hover_view = gtk::Box::new(Vertical, 0);
-        match &model.hovered {
-            Some(hu) => {
-                hover_view.add(&Label::new(Some(&hu.date_hour[..])));
-                hover_view.add(&Label::new(Some(&hu.content[..])));
-            },
-            None => {
-                hover_view.add(&Label::new(Some("Hover over a time to view")));
-            }
-        };
-        edit_view.add(&hover_view);
-
-        let select_view = gtk::Box::new(Vertical, 0);
-        match &model.selected {
-            Some(hu) => {
-                select_view.add(&Label::new(Some(&hu.date_hour[..])));
-                select_view.add(&Label::new(Some(&hu.content[..])));
-                select_view.add(&Button::new_with_label("Edit"));
-            },
-            None => {
-                select_view.add(&Label::new(Some("Click a time to edit")));
-            }
-        };
-        edit_view.add(&select_view);
-
-        layout.add(&edit_view);
+        
+        let (e_view, hover_view, select_view, hover_date_hour_label, hover_content_label, select_date_hour_label, select_content_label) = edit_view();
+        layout.add(&e_view);
         window.add(&layout);
 
         window.show_all();
 
         // Send the message Increment when the button is clicked.
-        connect!(relm, window, connect_delete_event(_, _), return (Some(Msg::Quit), Inhibit(false)));        
-        //connect!(relm, plus_button, connect_clicked(_), Msg::Increment);
-        //connect!(relm, minus_button, connect_clicked(_), Msg::Decrement);
-        
+        connect!(relm, window, connect_delete_event(_, _), return (Some(Msg::Quit), Inhibit(false)));
 
         Win {
             model,
             widgets: Widgets {
+                hover_view: hover_view,
+                select_view: select_view,
+                hover_date_hour_label: hover_date_hour_label,
+                hover_content_label: hover_content_label,
+                select_date_hour_label: select_date_hour_label,
+                select_content_label: select_content_label,
                 week: w_view,
                 window: window,
             },
