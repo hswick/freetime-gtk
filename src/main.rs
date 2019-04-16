@@ -125,17 +125,24 @@ impl Update for Win {
                     .expect("get_text failed")
                     .chars()
                     .collect();
+
+                if self.model.content != "".to_string() {
+                    self.widgets.select_content_label.set_text(&self.model.content);                    
+                }
                 
-                self.widgets.select_content_label.set_text(&self.model.content);
             },
             Msg::Edit => {
-                let (i, j) = self.model.selected.unwrap();
-                self.model.week[i][j] = HourUnit {
-                    content: self.model.content.clone(),
-                    date_hour: self.model.week[i][j].date_hour.clone()
-                };
-                self.model.selected = None;
-                self.model.content = "".to_string();
+                match self.model.selected {
+                    Some((i, j)) => {
+                        self.model.week[i][j] = HourUnit {
+                            content: self.model.content.clone(),
+                            date_hour: self.model.week[i][j].date_hour.clone()
+                        };
+                        self.model.selected = None;
+                        self.model.content = "".to_string();
+                        self.widgets.input.set_text("");                        
+                    }, None => {}
+                }
             },
             Msg::MouseEnter(i, j) => {
                 let c = &self.widgets.hover_view.get_children();                
@@ -155,12 +162,13 @@ impl Update for Win {
             },
             Msg::Select(i, j) => {
                 let c = &self.widgets.select_view.get_children();
-                //Only have to do this once
-                if c.len() == 3 {
-                    c[0].hide();
-                    c[1].show();
-                    c[2].show();
-                }
+
+                //Todo: Only have to do this once
+                c[0].hide();
+                c[1].show();//date hour label
+                c[2].show();//content label
+                c[3].show();//input entry
+                c[4].show();//edit button
 
                 let hour_unit = &self.model.week[i][j];
                 self.widgets.select_date_hour_label.set_text(&hour_unit.date_hour[..]);
@@ -181,7 +189,6 @@ fn week_view(relm: &Relm<Win>, week: &Vec<Vec<HourUnit>>) -> gtk::Box {
             day.add(&button);
             connect!(relm, button, connect_clicked(_), Msg::Select(i, j));
             connect!(relm, button, connect_enter_notify_event(_,_), return (Some(Msg::MouseEnter(i, j)), Inhibit(false)));
-            connect!(relm, button, connect_leave_notify_event(_,_), return (Some(Msg::MouseExit), Inhibit(false)));
         }
         week_buttons.add(&day);
     }
@@ -220,15 +227,12 @@ fn edit_view(relm: &Relm<Win>) -> (gtk::Box, gtk::Box, gtk::Box, Label, Label, L
     
     select_view.add(&select_date_hour_label);
     select_view.add(&select_content_label);
-    select_view.hide();
 
     let input = Entry::new();
-    input.show();
     select_view.add(&input);
     connect!(relm, input, connect_changed(_), Msg::Change);
 
     let edit = Button::new_with_label("Edit");
-    edit.show();
     select_view.add(&edit);
     connect!(relm, edit, connect_clicked(_), Msg::Edit);
     
@@ -253,12 +257,20 @@ impl Widget for Win {
 
         let w_view = week_view(relm, &model.week);
         layout.add(&w_view);
+        connect!(relm, w_view, connect_leave_notify_event(_,_), return (Some(Msg::MouseExit), Inhibit(false)));        
         
         let (e_view, hover_view, select_view, hover_date_hour_label, hover_content_label, select_date_hour_label, select_content_label, input) = edit_view(relm);
         layout.add(&e_view);
         window.add(&layout);
 
         window.show_all();
+
+        let c = select_view.get_children();
+        c[0].show();
+        c[1].hide();
+        c[2].hide();
+        c[3].hide();
+        c[4].hide();
 
         // Send the message Increment when the button is clicked.
         connect!(relm, window, connect_delete_event(_, _), return (Some(Msg::Quit), Inhibit(false)));
