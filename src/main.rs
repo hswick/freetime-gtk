@@ -124,12 +124,7 @@ impl Update for Win {
                 self.model.content = self.widgets.input.get_text()
                     .expect("get_text failed")
                     .chars()
-                    .collect();
-
-                if self.model.content != "".to_string() {
-                    self.widgets.select_content_label.set_text(&self.model.content);                    
-                }
-                
+                    .collect();                
             },
             Msg::Edit => {
                 match self.model.selected {
@@ -138,9 +133,12 @@ impl Update for Win {
                             content: self.model.content.clone(),
                             date_hour: self.model.week[i][j].date_hour.clone()
                         };
+
+                        self.widgets.select_content_label.set_text(&self.model.content);
+                        
                         self.model.selected = None;
                         self.model.content = "".to_string();
-                        self.widgets.input.set_text("");                        
+                        self.widgets.input.set_text("");                    
                     }, None => {}
                 }
             },
