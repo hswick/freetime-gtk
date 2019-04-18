@@ -30,6 +30,8 @@ extern crate chrono;
 
 use serde::{Serialize, Deserialize};
 
+use std::fs;
+
 use gtk::{
     Button,
     ButtonExt,
@@ -84,6 +86,7 @@ struct Model {
     week: Vec<Vec<HourUnit>>,
     selected: Option<(usize, usize)>,
     content: String,
+    selected_date: NaiveDate,
     today: NaiveDate
 }
 
@@ -116,8 +119,24 @@ enum Msg {
     Change
 }
 
+fn week_file_path(date: &NaiveDate) -> String {
+    let week = date.iso_week().week();
+    let monday = NaiveDate::from_isoywd(date.year(), week, Weekday::Mon);
+    let sunday = NaiveDate::from_isoywd(date.year(), week, Weekday::Sun);
+    format!(".freetime/{}_{}_{}-{}_{}_{}.json", monday.month(), monday.day(), monday.year(), sunday.month(), sunday.day(), sunday.year())    
+}
+
 fn init_week() -> Vec<Vec<HourUnit>> {
-    get_week(Local::now().date().naive_local())
+    let today = Local::now().date().naive_local();
+    let path = week_file_path(&today);
+    match fs::read(path) {
+        Ok(s) => {
+            serde_json::from_slice(&s).unwrap()
+        },
+        Err(_) => {
+            get_week(today)
+        }
+    }
 }
 
 impl Update for Win {
@@ -130,11 +149,13 @@ impl Update for Win {
 
     // Specify the initial state of the model
     fn model(_: &Relm<Self>, _: ()) -> Model {
+        let today = Local::now().date().naive_local();
         Model {
             week: init_week(),
             selected: None,
             content: "".to_string(),
-            today: Local::now().date().naive_local()
+            selected_date: today.clone(),
+            today: today
         }
     }
 
@@ -160,6 +181,9 @@ impl Update for Win {
                         
                         self.model.content = "".to_string();
                         self.widgets.input.set_text("");
+
+                        let path = week_file_path(&self.model.selected_date);
+                        fs::write(path, serde_json::to_string(&self.model.week).unwrap()).unwrap();
                     }, None => {}
                 }
             },
@@ -181,8 +205,6 @@ impl Update for Win {
             },
             Msg::Select(i, j) => {
                 let c = &self.widgets.select_view.get_children();
-
-                //Todo: Only have to do this once
                 c[0].hide();
                 c[1].show();//date hour label
                 c[2].show();//content label
@@ -328,7 +350,7 @@ impl WidgetTest for Win {
 }
 
 fn setup_freetime_dir() {
-    match std::fs::create_dir("./.freetime") {
+    match std::fs::create_dir(".freetime") {
         Ok(_) => {
             println!(".freetime directory has been created");
         },
