@@ -58,7 +58,7 @@ struct HourUnit {
     day: u32
 }
 
-fn get_week(date: NaiveDate) -> Vec<Vec<HourUnit>> {
+fn init_week(date: &NaiveDate) -> Vec<Vec<HourUnit>> {
     let y = date.year();
     let w = date.iso_week().week();
 
@@ -116,7 +116,10 @@ enum Msg {
     Select(usize, usize),
     Quit,
     Edit,
-    Change
+    Change,
+    Last,
+    Current,
+    Next
 }
 
 fn week_file_path(date: &NaiveDate) -> String {
@@ -126,15 +129,14 @@ fn week_file_path(date: &NaiveDate) -> String {
     format!(".freetime/{}_{}_{}-{}_{}_{}.json", monday.month(), monday.day(), monday.year(), sunday.month(), sunday.day(), sunday.year())    
 }
 
-fn init_week() -> Vec<Vec<HourUnit>> {
-    let today = Local::now().date().naive_local();
-    let path = week_file_path(&today);
+fn get_week(date: &NaiveDate) -> Vec<Vec<HourUnit>> {
+    let path = week_file_path(date);
     match fs::read(path) {
         Ok(s) => {
             serde_json::from_slice(&s).unwrap()
         },
         Err(_) => {
-            get_week(today)
+            init_week(date)
         }
     }
 }
@@ -151,7 +153,7 @@ impl Update for Win {
     fn model(_: &Relm<Self>, _: ()) -> Model {
         let today = Local::now().date().naive_local();
         Model {
-            week: init_week(),
+            week: get_week(&today),
             selected: None,
             content: "".to_string(),
             selected_date: today.clone(),
@@ -216,6 +218,29 @@ impl Update for Win {
                 self.widgets.select_content_label.set_text(&hour_unit.content[..]);
 
                 self.model.selected = Some((i, j));
+            },
+            Msg::Last => {
+                let selected = self.model.selected_date;
+
+                let last_sunday = NaiveDate::from_isoywd(selected.year(), selected.iso_week().week(), Weekday::Mon).pred();
+                let last_monday = NaiveDate::from_isoywd(selected.year(), last_sunday.iso_week().week(), Weekday::Mon);
+
+                self.model.week = get_week(&last_monday);
+                self.model.selected_date = last_monday;
+
+            },
+            Msg::Current => {
+                let today = Local::now().date().naive_local();
+                self.model.week = get_week(&today);
+                self.model.selected_date = today;
+            },
+            Msg::Next => {
+                let selected = self.model.selected_date;
+
+                let next_monday = NaiveDate::from_isoywd(selected.year(), selected.iso_week().week(), Weekday::Sun).succ();
+
+                self.model.week = get_week(&next_monday);
+                self.model.selected_date = next_monday;
             }
         }
     }
@@ -249,12 +274,15 @@ fn edit_view(relm: &Relm<Win>) -> (gtk::Box, gtk::Box, gtk::Box, Label, Label, L
 
     let week_select_view = gtk::Box::new(Horizontal, 0);
     let last_button = Button::new_with_label("Last");
+    connect!(relm, last_button, connect_clicked(_), Msg::Last);
     week_select_view.add(&last_button);
 
     let current_button = Button::new_with_label("Current");
+    connect!(relm, current_button, connect_clicked(_), Msg::Current);
     week_select_view.add(&current_button);
 
     let next_button = Button::new_with_label("Next");
+    connect!(relm, next_button, connect_clicked(_), Msg::Next);
     week_select_view.add(&next_button);
 
     edit_view.add(&week_select_view);
