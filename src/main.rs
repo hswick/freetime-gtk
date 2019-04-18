@@ -26,6 +26,9 @@ extern crate relm;
 extern crate relm_derive;
 #[cfg_attr(test, macro_use)]
 extern crate gtk_test;
+extern crate chrono;
+
+use serde::{Serialize, Deserialize};
 
 use gtk::{
     Button,
@@ -44,25 +47,35 @@ use gtk::{
 use gtk::Orientation::{Vertical, Horizontal};
 use relm::{Relm, Update, Widget, WidgetTest};
 
-#[derive(Clone)]
+use chrono::{Local, Weekday, NaiveDate, Datelike};
+
+#[derive(Clone,Serialize, Deserialize)]
 struct HourUnit {
     date_hour: String,
     content: String,
 }
 
-fn default_week() -> Vec<Vec<HourUnit>> {
-    let mut week = Vec::new();
-    for _ in 0..5 {
-        let mut day = Vec::new();
-        for hour in 8..21 {
-            day.push(HourUnit {
-                date_hour: format!("{:?}:00", hour),
-                content: "".to_string()
-            });
-        }
-        week.push(day);
-    }
-    week
+fn get_week(date: NaiveDate) -> Vec<Vec<HourUnit>> {
+    let y = date.year();
+    let w = date.iso_week().week();
+
+    let week = vec![NaiveDate::from_isoywd(y, w, Weekday::Mon),
+                    NaiveDate::from_isoywd(y, w, Weekday::Tue),
+                    NaiveDate::from_isoywd(y, w, Weekday::Wed),
+                    NaiveDate::from_isoywd(y, w, Weekday::Thu),
+                    NaiveDate::from_isoywd(y, w, Weekday::Fri),
+                    NaiveDate::from_isoywd(y, w, Weekday::Sat),
+                    NaiveDate::from_isoywd(y, w, Weekday::Sun)];
+
+    week.iter().map(|d|
+                    (8..21).map(|h|
+                                HourUnit {
+                                    date_hour: format!("{}_{}_{}_{}", d.day(), d.month(), y, h),
+                                    content: "".to_string()
+                                }
+                    ).collect()
+
+    ).collect()
 }
 
 struct Model {
@@ -100,6 +113,10 @@ enum Msg {
     Change
 }
 
+fn init_week() -> Vec<Vec<HourUnit>> {
+    get_week(Local::now().date().naive_local())
+}
+
 impl Update for Win {
     // Specify the model used for this widget.
     type Model = Model;
@@ -111,7 +128,7 @@ impl Update for Win {
     // Specify the initial state of the model
     fn model(_: &Relm<Self>, _: ()) -> Model {
         Model {
-            week: default_week(),
+            week: init_week(),
             selected: None,
             content: "".to_string()
         }
@@ -178,12 +195,12 @@ impl Update for Win {
     }
 }
 
-fn week_view(relm: &Relm<Win>, week: &Vec<Vec<HourUnit>>) -> gtk::Box {
+fn week_view(relm: &Relm<Win>) -> gtk::Box {
     let week_buttons = gtk::Box::new(Horizontal, 0);
-    for i in 0..5 {
+    for i in 0..7 {
         let day = gtk::Box::new(Vertical, 0);
         for j in 0..13 {
-            let button = Button::new_with_label(&week[i][j].date_hour);
+            let button = Button::new_with_label("-----");
             day.add(&button);
             connect!(relm, button, connect_clicked(_), Msg::Select(i, j));
             connect!(relm, button, connect_enter_notify_event(_,_), return (Some(Msg::MouseEnter(i, j)), Inhibit(false)));
@@ -253,7 +270,7 @@ impl Widget for Win {
         let window = Window::new(WindowType::Toplevel);
         let layout = gtk::Box::new(Horizontal, 0);
 
-        let w_view = week_view(relm, &model.week);
+        let w_view = week_view(relm);
         layout.add(&w_view);
         connect!(relm, w_view, connect_leave_notify_event(_,_), return (Some(Msg::MouseExit), Inhibit(false)));        
         
@@ -298,7 +315,19 @@ impl WidgetTest for Win {
     }
 }
 
+fn setup_freetime_dir() {
+    match std::fs::create_dir("./.freetime") {
+        Ok(_) => {
+            println!(".freetime directory has been created");
+        },
+        Err(e) => {
+            println!("Unable to create .freetime directory {:?}", e.kind());
+        }
+    }    
+}
+
 fn main() {
+    setup_freetime_dir();
     Win::run(()).expect("Win::run failed");
 }
 
