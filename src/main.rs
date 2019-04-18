@@ -53,6 +53,7 @@ use chrono::{Local, Weekday, NaiveDate, Datelike};
 struct HourUnit {
     date_hour: String,
     content: String,
+    day: u32
 }
 
 fn get_week(date: NaiveDate) -> Vec<Vec<HourUnit>> {
@@ -70,8 +71,9 @@ fn get_week(date: NaiveDate) -> Vec<Vec<HourUnit>> {
     week.iter().map(|d|
                     (8..21).map(|h|
                                 HourUnit {
-                                    date_hour: format!("{}_{}_{}_{}", d.day(), d.month(), y, h),
-                                    content: "".to_string()
+                                    date_hour: format!("{}/{}/{} {}:00", d.month(), d.day(), y, h),
+                                    content: "".to_string(),
+                                    day: d.day()
                                 }
                     ).collect()
 
@@ -81,7 +83,8 @@ fn get_week(date: NaiveDate) -> Vec<Vec<HourUnit>> {
 struct Model {
     week: Vec<Vec<HourUnit>>,
     selected: Option<(usize, usize)>,
-    content: String
+    content: String,
+    today: NaiveDate
 }
 
 // Create the structure that holds the widgets used in the view.
@@ -130,7 +133,8 @@ impl Update for Win {
         Model {
             week: init_week(),
             selected: None,
-            content: "".to_string()
+            content: "".to_string(),
+            today: Local::now().date().naive_local()
         }
     }
 
@@ -141,21 +145,21 @@ impl Update for Win {
                 self.model.content = self.widgets.input.get_text()
                     .expect("get_text failed")
                     .chars()
-                    .collect();                
+                    .collect();
             },
             Msg::Edit => {
                 match self.model.selected {
                     Some((i, j)) => {
                         self.model.week[i][j] = HourUnit {
                             content: self.model.content.clone(),
-                            date_hour: self.model.week[i][j].date_hour.clone()
+                            date_hour: self.model.week[i][j].date_hour.clone(),
+                            day: self.model.week[i][j].day.clone()
                         };
 
                         self.widgets.select_content_label.set_text(&self.model.content);
                         
-                        self.model.selected = None;
                         self.model.content = "".to_string();
-                        self.widgets.input.set_text("");                    
+                        self.widgets.input.set_text("");
                     }, None => {}
                 }
             },
@@ -195,13 +199,21 @@ impl Update for Win {
     }
 }
 
-fn week_view(relm: &Relm<Win>) -> gtk::Box {
+fn week_view(relm: &Relm<Win>, model: &Model) -> gtk::Box {
     let week_buttons = gtk::Box::new(Horizontal, 0);
     for i in 0..7 {
         let day = gtk::Box::new(Vertical, 0);
         for j in 0..13 {
-            let button = Button::new_with_label("-----");
+            
+            let hour_unit = &model.week[i][j];
+            let mut button = Button::new_with_label("-----");
+            
+            if hour_unit.day == model.today.day() {
+                button = Button::new_with_label("+++++");
+            }
+                        
             day.add(&button);
+            
             connect!(relm, button, connect_clicked(_), Msg::Select(i, j));
             connect!(relm, button, connect_enter_notify_event(_,_), return (Some(Msg::MouseEnter(i, j)), Inhibit(false)));
         }
@@ -270,7 +282,7 @@ impl Widget for Win {
         let window = Window::new(WindowType::Toplevel);
         let layout = gtk::Box::new(Horizontal, 0);
 
-        let w_view = week_view(relm);
+        let w_view = week_view(relm, &model);
         layout.add(&w_view);
         connect!(relm, w_view, connect_leave_notify_event(_,_), return (Some(Msg::MouseExit), Inhibit(false)));        
         
@@ -321,7 +333,7 @@ fn setup_freetime_dir() {
             println!(".freetime directory has been created");
         },
         Err(e) => {
-            println!("Unable to create .freetime directory {:?}", e.kind());
+            println!("Unable to create .freetime directory {:?}", e.kind ());
         }
     }    
 }
